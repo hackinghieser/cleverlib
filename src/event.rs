@@ -1,6 +1,6 @@
 use indexmap::IndexMap;
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Represents a structured log event with rich metadata and template parsing capabilities.
@@ -20,7 +20,7 @@ use serde_json::Value;
 /// * `data` - Additional event data as a string
 /// * `properties` - Dynamic properties of the event
 /// * `raw_string` - Original raw event string
-#[derive(Deserialize, Debug, PartialEq)]
+#[derive(Deserialize, Debug, PartialEq, Serialize)]
 pub struct Event {
     /// Timestamp of the event
     #[serde(rename = "@t")]

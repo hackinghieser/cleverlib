@@ -1,6 +1,6 @@
 [package]
 name = "cleverlib"
-version = "0.1.7"
+version = "0.2.0"
 authors = ["Alexander Hieser"]
 edition = "2021"
 repository = "https://github.com/hackinghieser/clever"
@@ -17,4 +17,4 @@ indexmap = { version = "2.6.0", features = ["serde"] }
 regex = "1.11.0"
 rayon = "1.10.0"
 rayon-progress = "1.0.0"
-indicatif = { version = "0.17.8", features = ["rayon"] }
+indicatif = { version = "0.18.0", features = ["rayon"] }
