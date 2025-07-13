@@ -45,7 +45,7 @@ impl EventCollection {
     ///
     /// An `Option<EventCollection>` containing the processed events
     pub fn create(
-        events: &Vec<String>,
+        events: &[String],
         options: Option<&CleverParserOptions>,
     ) -> Result<Self, serde_json::Error> {
         let mut event_collection = EventCollection {
@@ -56,6 +56,59 @@ impl EventCollection {
             &mut event_collection,
             events,
             options.unwrap().ignore_errors.as_ref().unwrap().to_owned(),
+        );
+        event_collection.events = match event_list {
+            Ok(value) => value,
+            Err(e) => return Err(e),
+        };
+        Ok(event_collection)
+    }
+
+    /// Creates an `EventCollection` from a specific range of events.
+    ///
+    /// This method processes events from start index to end index (exclusive),
+    /// similar to slice notation [start..end].
+    ///
+    /// # Arguments
+    ///
+    /// * `events` - A reference to a vector of log event strings
+    /// * `start` - Starting index (inclusive)
+    /// * `end` - Ending index (exclusive)
+    /// * `options` - Optional parser configuration
+    ///
+    /// # Returns
+    ///
+    /// `Result<EventCollection, serde_json::Error>` containing the processed events from the range
+    ///
+    /// # Panics
+    ///
+    /// Panics if start >= end or if end > events.len()
+    pub fn create_range(
+        events: &[String],
+        start: usize,
+        end: usize,
+        options: Option<&CleverParserOptions>,
+    ) -> Result<Self, serde_json::Error> {
+        if start >= end {
+            panic!("Start index must be less than end index");
+        }
+        if end > events.len() {
+            panic!("End index exceeds events length");
+        }
+
+        let event_slice = &events[start..end];
+        let mut event_collection = EventCollection {
+            events: vec![],
+            log_levels: vec![],
+        };
+        let ignore_errors = options
+            .and_then(|opts| opts.ignore_errors)
+            .unwrap_or(false);
+        
+        let event_list = EventCollection::read_events_serie(
+            &mut event_collection,
+            event_slice,
+            ignore_errors,
         );
         event_collection.events = match event_list {
             Ok(value) => value,
