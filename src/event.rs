@@ -21,6 +21,7 @@ use serde_json::Value;
 /// * `properties` - Dynamic properties of the event
 /// * `raw_string` - Original raw event string
 #[derive(Deserialize, Debug, PartialEq, Serialize)]
+#[derive(Clone)]
 pub struct Event {
     /// Timestamp of the event
     #[serde(rename = "@t")]
