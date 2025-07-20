@@ -2,6 +2,7 @@ use indexmap::IndexMap;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use crate::errors::{EventError, EventResult};
 
 /// Represents a structured log event with rich metadata and template parsing capabilities.
 ///
@@ -21,6 +22,7 @@ use serde_json::Value;
 /// * `properties` - Dynamic properties of the event
 /// * `raw_string` - Original raw event string
 #[derive(Deserialize, Debug, PartialEq, Serialize)]
+#[derive(Clone)]
 pub struct Event {
     /// Timestamp of the event
     #[serde(rename = "@t")]
@@ -95,15 +97,15 @@ impl Event {
     /// let regex = Regex::new(r"\{(\w+)\}").unwrap();
     /// let event = Event::create(json_event.to_string(), &regex);
     /// ```
-    pub fn create(raw_event: String, regex: &Regex) -> Result<Self, serde_json::Error> {
-        let raw_json: Value = serde_json::from_str(raw_event.as_str())?;
-        let mut event: Event = serde_json::from_value(raw_json.clone())?;
+    pub fn create(raw_event: String, regex: &Regex) -> EventResult<Self> {
+        let raw_json: Value = serde_json::from_str(raw_event.as_str()).map_err(|e|  EventError::GenerateTemplateError {message : e.to_string()})?;
+        let mut event: Event = serde_json::from_value(raw_json.clone()).map_err(|e| EventError::GenerateTemplateError {message : e.to_string() })?;
         event.raw_string = raw_event;
         event.message = Some(Event::generate_message_template(
             &event.template,
             &event.properties,
             regex,
-        ));
+        )?);
         Ok(event)
     }
 
@@ -147,7 +149,7 @@ impl Event {
         template: &str,
         properties: &IndexMap<String, Value>,
         regex: &Regex,
-    ) -> String {
+    ) -> EventResult<String> {
         let res = regex
             .replace_all(template, |caps: &regex::Captures| {
                 let key = &caps[1];
@@ -172,6 +174,6 @@ impl Event {
                 }
             })
             .to_string();
-        res
+        Ok(res)
     }
 }
