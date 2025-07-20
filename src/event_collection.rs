@@ -295,9 +295,8 @@ impl EventCollection {
                         event_collection.push(event);
                     }
                     Err(err) => {
-                        return Err(EventCollectionError::JsonParseError { 
-                            index, 
-                            source: err 
+                        return Err(EventCollectionError::EventError{
+                            message: e.to_string(),
                         });
                     }
                 }

@@ -3,11 +3,9 @@ use thiserror::Error;
 /// Errors that can occur when working with EventCollection
 #[derive(Error, Debug)]
 pub enum EventCollectionError {
-    #[error("Failed to parse JSON event at index {index}: {source}")]
-    JsonParseError {
-        index: usize,
-        #[source]
-        source: serde_json::Error,
+    #[error("Failed to parse JSON event at index: {message}")]
+    EventError {
+        message: String,
     },
 
     #[error("Invalid range: start index {start} must be less than end index {end}")]
@@ -24,6 +22,13 @@ pub enum EventCollectionError {
 
     #[error("Event processing failed: {message}")]
     ProcessingError { message: String },
+}
+
+#[derive(Error, Debug)]
+pub enum EventError {
+
+    #[error("Error generating the message template: {message}")]
+    GenerateTemplateError { message: String}
 }
 
 /// Errors that can occur when working with ClefParser
@@ -62,6 +67,8 @@ pub enum ClefParserError {
     InitializationError { message: String },
 }
 
+
+
 /// A unified error type for the entire cleverlib crate
 #[derive(Error, Debug)]
 pub enum CleverLibError {
@@ -83,3 +90,4 @@ pub type ClefParserResult<T> = Result<T, ClefParserError>;
 
 /// Result type alias for general cleverlib operations
 pub type CleverLibResult<T> = Result<T, CleverLibError>;
+pub type EventResult<T> = Result<T, EventError>;
