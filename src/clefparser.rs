@@ -1,16 +1,19 @@
 use std::{
     collections::VecDeque,
     fs::File,
-    io::{self, BufRead, BufReader, Seek},
+    io::{BufRead, BufReader},
 };
 
 use crate::{
-    clever_parser_options::CleverParserOptions, event::Event, event_collection::EventCollection,
+    clever_parser_options::CleverParserOptions, 
+    errors::{ClefParserError, ClefParserResult},
+    event::Event, 
+    event_collection::EventCollection,
 };
 
 pub struct ClefParser<'a> {
     file: File,
-    pub lineCount: usize,
+    pub line_count: usize,
     path: &'a str,
     settings: ClefParserSettings,
     pub cached_chunks: VecDeque<Vec<Event>>,
@@ -31,8 +34,11 @@ pub struct ClefParserSettings {
     pub ignore_errors: bool,
 }
 impl<'a> ClefParser<'a> {
-    pub fn new_with_defaults(path: &str) -> Result<ClefParser, io::Error> {
-        let file = File::open(path)?;
+    pub fn new_with_defaults(path: &str) -> ClefParserResult<ClefParser> {
+        let file = File::open(path).map_err(|e| ClefParserError::FileOpenError {
+            path: path.to_string(),
+            source: e,
+        })?;
         let buffer = BufReader::new(&file);
         let line_count = buffer.lines().count();
         Ok(ClefParser {
@@ -40,7 +46,7 @@ impl<'a> ClefParser<'a> {
             file,
             cached_chunks: VecDeque::new(),
             tail: 1,
-            lineCount: line_count,
+            line_count: line_count,
             chunk_size: 1,
             settings: ClefParserSettings {
                 chunk_size: 500,
@@ -53,15 +59,21 @@ impl<'a> ClefParser<'a> {
         path: &str,
         chunk_size: usize,
         parser_settings: ClefParserSettings,
-    ) -> Result<ClefParser, io::Error> {
-        let file = File::open(path)?;
+    ) -> ClefParserResult<ClefParser> {
+        if chunk_size == 0 {
+            return Err(ClefParserError::InvalidChunkSize { size: chunk_size });
+        }
+        let file = File::open(path).map_err(|e| ClefParserError::FileOpenError {
+            path: path.to_string(),
+            source: e,
+        })?;
         let buffer = BufReader::new(&file);
         let line_count = buffer.lines().count();
         println!("Maxlines: {}", &line_count);
         Ok(ClefParser {
             path,
             file,
-            lineCount: line_count,
+            line_count: line_count,
             cached_chunks: VecDeque::new(),
             chunk_size,
             tail: 1,
@@ -69,9 +81,9 @@ impl<'a> ClefParser<'a> {
         })
     }
 
-    pub fn get_next_chunk(&mut self) -> Option<Vec<Event>> {
-        if self.tail > self.lineCount {
-            return None;
+    pub fn get_next_chunk(&mut self) -> ClefParserResult<Option<Vec<Event>>> {
+        if self.tail > self.line_count {
+            return Ok(None);
         }
 
         println!(
@@ -79,7 +91,10 @@ impl<'a> ClefParser<'a> {
             self.tail, self.chunk_size
         );
 
-        let file = File::open(self.path).unwrap();
+        let file = File::open(self.path).map_err(|e| ClefParserError::FileOpenError {
+            path: self.path.to_string(),
+            source: e,
+        })?;
         let reader = BufReader::new(file);
         let lines: Vec<String> = reader
             .lines()
@@ -91,7 +106,7 @@ impl<'a> ClefParser<'a> {
         println!("Read {} lines", lines.len());
 
         if lines.is_empty() {
-            return None;
+            return Ok(None);
         }
 
         let events = EventCollection::create(
@@ -100,8 +115,7 @@ impl<'a> ClefParser<'a> {
                 debug: Some(false),
                 ignore_errors: Some(true),
             }),
-        )
-        .unwrap();
+        )?;
 
         // Add to cached_chunks and maintain max 3 chunks
         self.cached_chunks.push_back(events.events.clone());
@@ -110,15 +124,15 @@ impl<'a> ClefParser<'a> {
         }
 
         self.tail += self.chunk_size;
-        Some(events.events)
+        Ok(Some(events.events))
     }
 
     pub fn cached_chunks_count(&self) -> usize {
         self.cached_chunks.len()
     }
-    pub fn get_previous_chunk(&mut self) -> Option<Vec<Event>> {
+    pub fn get_previous_chunk(&mut self) -> ClefParserResult<Option<Vec<Event>>> {
         if self.tail <= 1 {
-            return None;
+            return Ok(None);
         }
 
         // Move backward by chunk_size
@@ -133,7 +147,10 @@ impl<'a> ClefParser<'a> {
             new_tail, self.chunk_size
         );
 
-        let file = File::open(self.path).unwrap();
+        let file = File::open(self.path).map_err(|e| ClefParserError::FileOpenError {
+            path: self.path.to_string(),
+            source: e,
+        })?;
         let reader = BufReader::new(file);
         let lines: Vec<String> = reader
             .lines()
@@ -145,7 +162,7 @@ impl<'a> ClefParser<'a> {
         println!("Read {} lines", lines.len());
 
         if lines.is_empty() {
-            return None;
+            return Ok(None);
         }
 
         let events = EventCollection::create(
@@ -154,8 +171,7 @@ impl<'a> ClefParser<'a> {
                 debug: Some(false),
                 ignore_errors: Some(true),
             }),
-        )
-        .unwrap();
+        )?;
 
         // Add to cached_chunks and maintain max 3 chunks
         self.cached_chunks.push_back(events.events.clone());
@@ -164,6 +180,6 @@ impl<'a> ClefParser<'a> {
         }
 
         self.tail = new_tail;
-        Some(events.events)
+        Ok(Some(events.events))
     }
 }

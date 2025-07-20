@@ -1,4 +1,4 @@
-use cleverlib::clefpraser::{ClefParser, ClefParserSettings};
+use cleverlib::clefparser::{ClefParser, ClefParserSettings};
 use std::fs;
 
 fn generate_test_entries(count: usize) -> Vec<String> {
@@ -144,7 +144,7 @@ fn main() {
             }
 
             println!("\n=== Final Summary ===");
-            println!("Total lines in file: {}", parser.lineCount);
+            println!("Total lines in file: {}", parser.line_count);
             println!("Total events processed: {}", total_events);
             println!("Final tail position: {}", parser.tail);
             println!(

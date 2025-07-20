@@ -1,10 +1,13 @@
-use core::panic;
 use std::{
     fmt::Debug,
     sync::{Arc, Mutex},
 };
 
-use crate::{clever_parser_options::CleverParserOptions, event::Event};
+use crate::{
+    clever_parser_options::CleverParserOptions, 
+    errors::{EventCollectionError, EventCollectionResult}, 
+    event::Event
+};
 use indicatif::{ParallelProgressIterator, ProgressIterator};
 use rayon::prelude::*;
 use regex::Regex;
@@ -47,20 +50,23 @@ impl EventCollection {
     pub fn create(
         events: &[String],
         options: Option<&CleverParserOptions>,
-    ) -> Result<Self, serde_json::Error> {
+    ) -> EventCollectionResult<Self> {
         let mut event_collection = EventCollection {
             events: vec![],
             log_levels: vec![],
         };
+        if events.is_empty() {
+            return Err(EventCollectionError::EmptyCollection);
+        }
+        let ignore_errors = options
+            .and_then(|opts| opts.ignore_errors)
+            .unwrap_or(false);
         let event_list = EventCollection::read_events_serie(
             &mut event_collection,
             events,
-            options.unwrap().ignore_errors.as_ref().unwrap().to_owned(),
-        );
-        event_collection.events = match event_list {
-            Ok(value) => value,
-            Err(e) => return Err(e),
-        };
+            ignore_errors,
+        )?;
+        event_collection.events = event_list;
         Ok(event_collection)
     }
 
@@ -88,12 +94,15 @@ impl EventCollection {
         start: usize,
         end: usize,
         options: Option<&CleverParserOptions>,
-    ) -> Result<Self, serde_json::Error> {
+    ) -> EventCollectionResult<Self> {
         if start >= end {
-            panic!("Start index must be less than end index");
+            return Err(EventCollectionError::InvalidRange { start, end });
         }
         if end > events.len() {
-            panic!("End index exceeds events length");
+            return Err(EventCollectionError::RangeOutOfBounds { 
+                end, 
+                length: events.len() 
+            });
         }
 
         let event_slice = &events[start..end];
@@ -109,11 +118,8 @@ impl EventCollection {
             &mut event_collection,
             event_slice,
             ignore_errors,
-        );
-        event_collection.events = match event_list {
-            Ok(value) => value,
-            Err(e) => return Err(e),
-        };
+        )?;
+        event_collection.events = event_list;
         Ok(event_collection)
     }
 
@@ -248,10 +254,10 @@ impl EventCollection {
     fn read_events_serie(
         &mut self,
         events: &[String],
-        ignore_erros: bool,
-    ) -> Result<Vec<Event>, serde_json::Error> {
-        if ignore_erros {
-            let re = Regex::new(r"\{(\w+|\d+)\}").unwrap();
+        ignore_errors: bool,
+    ) -> EventCollectionResult<Vec<Event>> {
+        if ignore_errors {
+            let re = Regex::new(r"\{(\w+|\d+)\}").map_err(EventCollectionError::RegexError)?;
             let mut log_levels: Vec<String> = vec![];
             let event_collection = events
                 .iter()
@@ -274,27 +280,29 @@ impl EventCollection {
             self.log_levels = log_levels;
             Ok(event_collection)
         } else {
-            let re = Regex::new(r"\{(\w+|\d+)\}").unwrap();
+            let re = Regex::new(r"\{(\w+|\d+)\}").map_err(EventCollectionError::RegexError)?;
             let mut log_levels: Vec<String> = vec![];
-            let mut index: i128 = 1;
-            let event_collection = events
-                .iter()
-                .progress()
-                .filter_map(|e| match Event::create(e.to_string(), &re) {
+            let mut event_collection = Vec::new();
+            
+            for (index, e) in events.iter().progress().enumerate() {
+                match Event::create(e.to_string(), &re) {
                     Ok(event) => {
                         if let Some(level) = event.level.clone() {
                             if !log_levels.contains(&level) {
                                 log_levels.push(level)
                             }
                         }
-                        index += 1;
-                        Some(event)
+                        event_collection.push(event);
                     }
                     Err(err) => {
-                        panic!("Error parsing event no. {}\r\n{}", index, err)
+                        return Err(EventCollectionError::JsonParseError { 
+                            index, 
+                            source: err 
+                        });
                     }
-                })
-                .collect();
+                }
+            }
+            
             self.log_levels = log_levels;
             Ok(event_collection)
         }

@@ -1,5 +1,6 @@
-pub mod clefpraser;
+pub mod clefparser;
 pub mod clever_parser_options;
+pub mod errors;
 pub mod event;
 pub mod event_collection;
 #[cfg(test)]
@@ -7,7 +8,6 @@ mod tests {
     use super::*;
     use clever_parser_options::CleverParserOptions;
     use event_collection::EventCollection;
-    use parser::CleverParser;
 
     #[test]
     fn read_event() {
