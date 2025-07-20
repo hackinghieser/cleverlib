@@ -46,7 +46,7 @@ impl<'a> ClefParser<'a> {
             file,
             cached_chunks: VecDeque::new(),
             tail: 1,
-            line_count: line_count,
+            line_count,
             chunk_size: 1,
             settings: ClefParserSettings {
                 chunk_size: 500,
@@ -73,7 +73,7 @@ impl<'a> ClefParser<'a> {
         Ok(ClefParser {
             path,
             file,
-            line_count: line_count,
+            line_count,
             cached_chunks: VecDeque::new(),
             chunk_size,
             tail: 1,
