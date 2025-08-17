@@ -18,17 +18,23 @@ pub struct ClefParser<'a> {
     settings: ClefParserSettings,
     pub cached_chunks: VecDeque<Vec<Event>>,
     pub tail: usize,
-    chunk_size: usize,
+    pub chunk_size: usize,
 }
 
-impl Clone for ClefParserSettings {
-    fn clone(&self) -> Self {
-        Self {
-            chunk_size: self.chunk_size,
-            ignore_errors: self.ignore_errors,
-        }
+impl<'a> std::fmt::Debug for ClefParser<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClefParser")
+            .field("line_count", &self.line_count)
+            .field("path", &self.path)
+            .field("settings", &self.settings)
+            .field("cached_chunks", &self.cached_chunks)
+            .field("tail", &self.tail)
+            .field("chunk_size", &self.chunk_size)
+            .finish()
     }
 }
+
+#[derive(Clone, Debug)]
 pub struct ClefParserSettings {
     pub chunk_size: usize,
     pub ignore_errors: bool,

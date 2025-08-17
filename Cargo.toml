@@ -19,3 +19,6 @@ rayon = "1.10.0"
 rayon-progress = "1.0.0"
 indicatif = { version = "0.18.0", features = ["rayon"] }
 thiserror = "2.0"
+
+[dev-dependencies]
+tempfile = "3.0"

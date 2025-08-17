@@ -202,3 +202,350 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod clefparser_tests {
+    use super::*;
+    use clefparser::{ClefParser, ClefParserSettings};
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    fn create_test_file(content: &str) -> NamedTempFile {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "{}", content).unwrap();
+        temp_file
+    }
+
+    fn create_empty_test_file() -> NamedTempFile {
+        NamedTempFile::new().unwrap()
+    }
+
+    fn create_multi_line_test_file(lines: &[&str]) -> NamedTempFile {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        for line in lines {
+            writeln!(temp_file, "{}", line).unwrap();
+        }
+        temp_file
+    }
+
+    #[test]
+    fn new_with_defaults_creates_parser() {
+        let test_file = create_test_file(r#"{"@t":"2024-12-28T10:15:30.123Z","@l":"Information","@mt":"Test message"}"#);
+        let path = test_file.path().to_str().unwrap();
+        
+        let parser = ClefParser::new_with_defaults(path);
+        
+        assert!(parser.is_ok());
+        let parser = parser.unwrap();
+        assert_eq!(parser.line_count, 1);
+        assert_eq!(parser.tail, 1);
+        assert_eq!(parser.cached_chunks_count(), 0);
+    }
+
+    #[test]
+    fn new_with_defaults_fails_for_nonexistent_file() {
+        let result = ClefParser::new_with_defaults("/nonexistent/file.clef");
+        
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            errors::ClefParserError::FileOpenError { path, .. } => {
+                assert_eq!(path, "/nonexistent/file.clef");
+            }
+            _ => panic!("Expected FileOpenError"),
+        }
+    }
+
+    #[test]
+    fn new_creates_parser_with_custom_settings() {
+        let test_file = create_test_file(r#"{"@t":"2024-12-28T10:15:30.123Z","@l":"Information","@mt":"Test message"}"#);
+        let path = test_file.path().to_str().unwrap();
+        
+        let settings = ClefParserSettings {
+            chunk_size: 100,
+            ignore_errors: false,
+        };
+        
+        let parser = ClefParser::new(path, 5, settings);
+        
+        assert!(parser.is_ok());
+        let parser = parser.unwrap();
+        assert_eq!(parser.line_count, 1);
+        assert_eq!(parser.chunk_size, 5);
+    }
+
+    #[test]
+    fn new_fails_with_zero_chunk_size() {
+        let test_file = create_test_file(r#"{"@t":"2024-12-28T10:15:30.123Z","@l":"Information","@mt":"Test message"}"#);
+        let path = test_file.path().to_str().unwrap();
+        
+        let settings = ClefParserSettings {
+            chunk_size: 100,
+            ignore_errors: false,
+        };
+        
+        let result = ClefParser::new(path, 0, settings);
+        
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            errors::ClefParserError::InvalidChunkSize { size } => {
+                assert_eq!(size, 0);
+            }
+            _ => panic!("Expected InvalidChunkSize error"),
+        }
+    }
+
+    #[test]
+    fn get_next_chunk_reads_single_event() {
+        let test_file = create_test_file(r#"{"@t":"2024-12-28T10:15:30.123Z","@l":"Information","@mt":"User {UserId} logged in","UserId":"user123"}"#);
+        let path = test_file.path().to_str().unwrap();
+        
+        let mut parser = ClefParser::new_with_defaults(path).unwrap();
+        
+        let chunk = parser.get_next_chunk().unwrap();
+        
+        assert!(chunk.is_some());
+        let events = chunk.unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].message.as_ref().unwrap(), "User user123 logged in");
+        assert_eq!(parser.cached_chunks_count(), 1);
+    }
+
+    #[test]
+    fn get_next_chunk_reads_multiple_chunks() {
+        let lines = [
+            r#"{"@t":"2024-12-28T10:15:30.123Z","@l":"Information","@mt":"Line 1"}"#,
+            r#"{"@t":"2024-12-28T10:15:31.123Z","@l":"Information","@mt":"Line 2"}"#,
+            r#"{"@t":"2024-12-28T10:15:32.123Z","@l":"Information","@mt":"Line 3"}"#,
+        ];
+        let test_file = create_multi_line_test_file(&lines);
+        let path = test_file.path().to_str().unwrap();
+        
+        let settings = ClefParserSettings {
+            chunk_size: 2,
+            ignore_errors: true,
+        };
+        let mut parser = ClefParser::new(path, 2, settings).unwrap();
+        
+        // First chunk should contain 2 events
+        let chunk1 = parser.get_next_chunk().unwrap();
+        assert!(chunk1.is_some());
+        let events1 = chunk1.unwrap();
+        assert_eq!(events1.len(), 2);
+        
+        // Second chunk should contain 1 event
+        let chunk2 = parser.get_next_chunk().unwrap();
+        assert!(chunk2.is_some());
+        let events2 = chunk2.unwrap();
+        assert_eq!(events2.len(), 1);
+        
+        // Third call should return None
+        let chunk3 = parser.get_next_chunk().unwrap();
+        assert!(chunk3.is_none());
+    }
+
+    #[test]
+    fn get_next_chunk_returns_none_when_no_more_lines() {
+        let test_file = create_test_file(r#"{"@t":"2024-12-28T10:15:30.123Z","@l":"Information","@mt":"Only line"}"#);
+        let path = test_file.path().to_str().unwrap();
+        
+        let mut parser = ClefParser::new_with_defaults(path).unwrap();
+        
+        // First call should return the event
+        let chunk1 = parser.get_next_chunk().unwrap();
+        assert!(chunk1.is_some());
+        
+        // Second call should return None
+        let chunk2 = parser.get_next_chunk().unwrap();
+        assert!(chunk2.is_none());
+    }
+
+    #[test]
+    fn get_previous_chunk_reads_backward() {
+        let lines = [
+            r#"{"@t":"2024-12-28T10:15:30.123Z","@l":"Information","@mt":"Line 1"}"#,
+            r#"{"@t":"2024-12-28T10:15:31.123Z","@l":"Information","@mt":"Line 2"}"#,
+            r#"{"@t":"2024-12-28T10:15:32.123Z","@l":"Information","@mt":"Line 3"}"#,
+            r#"{"@t":"2024-12-28T10:15:33.123Z","@l":"Information","@mt":"Line 4"}"#,
+        ];
+        let test_file = create_multi_line_test_file(&lines);
+        let path = test_file.path().to_str().unwrap();
+        
+        let settings = ClefParserSettings {
+            chunk_size: 2,
+            ignore_errors: true,
+        };
+        let mut parser = ClefParser::new(path, 2, settings).unwrap();
+        
+        // Move forward first
+        parser.get_next_chunk().unwrap(); // Lines 1-2, tail becomes 3
+        parser.get_next_chunk().unwrap(); // Lines 3-4, tail becomes 5
+        
+        // Now go backward - this will calculate new_tail = 5 - 2 = 3
+        let chunk = parser.get_previous_chunk().unwrap();
+        assert!(chunk.is_some());
+        let events = chunk.unwrap();
+        assert_eq!(events.len(), 2); // Should read lines 3-4 again
+    }
+
+    #[test]
+    fn get_previous_chunk_returns_none_at_beginning() {
+        let test_file = create_test_file(r#"{"@t":"2024-12-28T10:15:30.123Z","@l":"Information","@mt":"Only line"}"#);
+        let path = test_file.path().to_str().unwrap();
+        
+        let mut parser = ClefParser::new_with_defaults(path).unwrap();
+        
+        // At the beginning, get_previous_chunk should return None
+        let chunk = parser.get_previous_chunk().unwrap();
+        assert!(chunk.is_none());
+    }
+
+    #[test]
+    fn cached_chunks_maintains_max_three_chunks() {
+        let lines = [
+            r#"{"@t":"2024-12-28T10:15:30.123Z","@l":"Information","@mt":"Line 1"}"#,
+            r#"{"@t":"2024-12-28T10:15:31.123Z","@l":"Information","@mt":"Line 2"}"#,
+            r#"{"@t":"2024-12-28T10:15:32.123Z","@l":"Information","@mt":"Line 3"}"#,
+            r#"{"@t":"2024-12-28T10:15:33.123Z","@l":"Information","@mt":"Line 4"}"#,
+            r#"{"@t":"2024-12-28T10:15:34.123Z","@l":"Information","@mt":"Line 5"}"#,
+        ];
+        let test_file = create_multi_line_test_file(&lines);
+        let path = test_file.path().to_str().unwrap();
+        
+        let mut parser = ClefParser::new_with_defaults(path).unwrap();
+        
+        // Read 4 chunks (each chunk contains 1 line with default settings)
+        parser.get_next_chunk().unwrap();
+        assert_eq!(parser.cached_chunks_count(), 1);
+        
+        parser.get_next_chunk().unwrap();
+        assert_eq!(parser.cached_chunks_count(), 2);
+        
+        parser.get_next_chunk().unwrap();
+        assert_eq!(parser.cached_chunks_count(), 3);
+        
+        parser.get_next_chunk().unwrap();
+        assert_eq!(parser.cached_chunks_count(), 3); // Should still be 3, oldest chunk removed
+    }
+
+    #[test]
+    fn clef_parser_settings_can_be_cloned() {
+        let settings = ClefParserSettings {
+            chunk_size: 100,
+            ignore_errors: true,
+        };
+        
+        let cloned_settings = settings.clone();
+        
+        assert_eq!(settings.chunk_size, cloned_settings.chunk_size);
+        assert_eq!(settings.ignore_errors, cloned_settings.ignore_errors);
+    }
+
+    #[test]
+    fn parser_counts_lines_correctly() {
+        let lines = [
+            r#"{"@t":"2024-12-28T10:15:30.123Z","@l":"Information","@mt":"Line 1"}"#,
+            r#"{"@t":"2024-12-28T10:15:31.123Z","@l":"Information","@mt":"Line 2"}"#,
+            r#"{"@t":"2024-12-28T10:15:32.123Z","@l":"Information","@mt":"Line 3"}"#,
+        ];
+        let test_file = create_multi_line_test_file(&lines);
+        let path = test_file.path().to_str().unwrap();
+        
+        let parser = ClefParser::new_with_defaults(path).unwrap();
+        
+        assert_eq!(parser.line_count, 3);
+    }
+
+    #[test]
+    fn parser_handles_empty_file() {
+        let test_file = create_empty_test_file();
+        let path = test_file.path().to_str().unwrap();
+        
+        let mut parser = ClefParser::new_with_defaults(path).unwrap();
+        
+        assert_eq!(parser.line_count, 0);
+        let chunk = parser.get_next_chunk().unwrap();
+        assert!(chunk.is_none());
+    }
+
+    #[test]
+    fn parser_handles_invalid_json_with_ignore_errors() {
+        let lines = [
+            r#"{"@t":"2024-12-28T10:15:30.123Z","@l":"Information","@mt":"Valid line"}"#,
+            r#"invalid json line"#,
+            r#"{"@t":"2024-12-28T10:15:32.123Z","@l":"Information","@mt":"Another valid line"}"#,
+        ];
+        let test_file = create_multi_line_test_file(&lines);
+        let path = test_file.path().to_str().unwrap();
+        
+        let settings = ClefParserSettings {
+            chunk_size: 100,
+            ignore_errors: true,
+        };
+        let mut parser = ClefParser::new(path, 10, settings).unwrap();
+        
+        let chunk = parser.get_next_chunk().unwrap();
+        assert!(chunk.is_some());
+        let events = chunk.unwrap();
+        // Should only have 2 valid events, ignoring the invalid JSON
+        assert_eq!(events.len(), 2);
+    }
+
+    #[test]
+    fn parser_with_large_chunk_size_reads_all_lines() {
+        let lines = [
+            r#"{"@t":"2024-12-28T10:15:30.123Z","@l":"Information","@mt":"Line 1"}"#,
+            r#"{"@t":"2024-12-28T10:15:31.123Z","@l":"Information","@mt":"Line 2"}"#,
+        ];
+        let test_file = create_multi_line_test_file(&lines);
+        let path = test_file.path().to_str().unwrap();
+        
+        let settings = ClefParserSettings {
+            chunk_size: 100,
+            ignore_errors: true,
+        };
+        let mut parser = ClefParser::new(path, 100, settings).unwrap();
+        
+        let chunk = parser.get_next_chunk().unwrap();
+        assert!(chunk.is_some());
+        let events = chunk.unwrap();
+        assert_eq!(events.len(), 2);
+        
+        // Next chunk should be None
+        let chunk2 = parser.get_next_chunk().unwrap();
+        assert!(chunk2.is_none());
+    }
+
+    #[test]
+    fn parser_tail_position_updates_correctly() {
+        let lines = [
+            r#"{"@t":"2024-12-28T10:15:30.123Z","@l":"Information","@mt":"Line 1"}"#,
+            r#"{"@t":"2024-12-28T10:15:31.123Z","@l":"Information","@mt":"Line 2"}"#,
+            r#"{"@t":"2024-12-28T10:15:32.123Z","@l":"Information","@mt":"Line 3"}"#,
+        ];
+        let test_file = create_multi_line_test_file(&lines);
+        let path = test_file.path().to_str().unwrap();
+        
+        let mut parser = ClefParser::new_with_defaults(path).unwrap();
+        
+        assert_eq!(parser.tail, 1);
+        
+        parser.get_next_chunk().unwrap();
+        assert_eq!(parser.tail, 2); // Default chunk_size is 1
+        
+        parser.get_next_chunk().unwrap();
+        assert_eq!(parser.tail, 3);
+    }
+
+    #[test]
+    fn debug_implementation_works() {
+        let test_file = create_test_file(r#"{"@t":"2024-12-28T10:15:30.123Z","@l":"Information","@mt":"Test message"}"#);
+        let path = test_file.path().to_str().unwrap();
+        
+        let parser = ClefParser::new_with_defaults(path).unwrap();
+        let debug_output = format!("{:?}", parser);
+        
+        assert!(debug_output.contains("ClefParser"));
+        assert!(debug_output.contains("line_count"));
+        assert!(debug_output.contains("tail"));
+    }
+}
